@@ -30,7 +30,6 @@ using namespace std;
 #include <srs_app_utility.hpp>
 #include <srs_app_heartbeat.hpp>
 #include <srs_app_mpegts_udp.hpp>
-#include <srs_app_rtsp.hpp>
 #include <srs_app_statistic.hpp>
 #include <srs_app_caster_flv.hpp>
 #include <srs_kernel_consts.hpp>
@@ -50,11 +49,9 @@ std::string srs_listener_type2string(SrsListenerType type)
         case SrsListenerHttpStream:
             return "HTTP-Server";
         case SrsListenerHttpsStream:
-            return "HTTP-Server";
+            return "HTTPS-Server";
         case SrsListenerMpegTsOverUdp:
             return "MPEG-TS over UDP";
-        case SrsListenerRtsp:
-            return "RTSP";
         case SrsListenerFlv:
             return "HTTP-FLV";
         default:
@@ -111,62 +108,6 @@ srs_error_t SrsBufferListener::listen(string i, int p)
 srs_error_t SrsBufferListener::on_tcp_client(srs_netfd_t stfd)
 {
     srs_error_t err = server->accept_client(type, stfd);
-    if (err != srs_success) {
-        srs_warn("accept client failed, err is %s", srs_error_desc(err).c_str());
-        srs_freep(err);
-    }
-    
-    return srs_success;
-}
-
-SrsRtspListener::SrsRtspListener(SrsServer* svr, SrsListenerType t, SrsConfDirective* c) : SrsListener(svr, t)
-{
-    listener = NULL;
-    
-    // the caller already ensure the type is ok,
-    // we just assert here for unknown stream caster.
-    srs_assert(type == SrsListenerRtsp);
-    if (type == SrsListenerRtsp) {
-        caster = new SrsRtspCaster(c);
-
-        // TODO: FIXME: Must check error.
-        caster->initialize();
-    }
-}
-
-SrsRtspListener::~SrsRtspListener()
-{
-    srs_freep(caster);
-    srs_freep(listener);
-}
-
-srs_error_t SrsRtspListener::listen(string i, int p)
-{
-    srs_error_t err = srs_success;
-    
-    // the caller already ensure the type is ok,
-    // we just assert here for unknown stream caster.
-    srs_assert(type == SrsListenerRtsp);
-    
-    ip = i;
-    port = p;
-    
-    srs_freep(listener);
-    listener = new SrsTcpListener(this, ip, port);
-    
-    if ((err = listener->listen()) != srs_success) {
-        return srs_error_wrap(err, "rtsp listen %s:%d", ip.c_str(), port);
-    }
-    
-    string v = srs_listener_type2string(type);
-    srs_trace("%s listen at tcp://%s:%d, fd=%d", v.c_str(), ip.c_str(), port, listener->fd());
-    
-    return err;
-}
-
-srs_error_t SrsRtspListener::on_tcp_client(srs_netfd_t stfd)
-{
-    srs_error_t err = caster->on_tcp_client(stfd);
     if (err != srs_success) {
         srs_warn("accept client failed, err is %s", srs_error_desc(err).c_str());
         srs_freep(err);
@@ -301,6 +242,8 @@ SrsSignalManager::SrsSignalManager(SrsServer* s)
 
 SrsSignalManager::~SrsSignalManager()
 {
+    srs_freep(trd);
+
     srs_close_stfd(signal_read_stfd);
     
     if (sig_pipe[0] > 0) {
@@ -309,8 +252,6 @@ SrsSignalManager::~SrsSignalManager()
     if (sig_pipe[1] > 0) {
         ::close(sig_pipe[1]);
     }
-    
-    srs_freep(trd);
 }
 
 srs_error_t SrsSignalManager::initialize()
@@ -353,6 +294,11 @@ srs_error_t SrsSignalManager::start()
     sigemptyset(&sa.sa_mask);
     sa.sa_flags = 0;
     sigaction(SRS_SIGNAL_GRACEFULLY_QUIT, &sa, NULL);
+
+    sa.sa_handler = SrsSignalManager::sig_catcher;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
+    sigaction(SRS_SIGNAL_ASSERT_ABORT, &sa, NULL);
     
     sa.sa_handler = SrsSignalManager::sig_catcher;
     sigemptyset(&sa.sa_mask);
@@ -587,6 +533,7 @@ SrsServer::SrsServer()
     ingester = new SrsIngester();
     trd_ = new SrsSTCoroutine("srs", this, _srs_context->get_id());
     timer_ = NULL;
+    wg_ = NULL;
 }
 
 SrsServer::~SrsServer()
@@ -629,7 +576,6 @@ void SrsServer::dispose()
     close_listeners(SrsListenerHttpStream);
     close_listeners(SrsListenerHttpsStream);
     close_listeners(SrsListenerMpegTsOverUdp);
-    close_listeners(SrsListenerRtsp);
     close_listeners(SrsListenerFlv);
     
     // Fast stop to notify FFMPEG to quit, wait for a while then fast kill.
@@ -656,7 +602,6 @@ void SrsServer::gracefully_dispose()
     close_listeners(SrsListenerHttpStream);
     close_listeners(SrsListenerHttpsStream);
     close_listeners(SrsListenerMpegTsOverUdp);
-    close_listeners(SrsListenerRtsp);
     close_listeners(SrsListenerFlv);
     srs_trace("listeners closed");
 
@@ -951,7 +896,7 @@ srs_error_t SrsServer::ingest()
     return err;
 }
 
-srs_error_t SrsServer::start()
+srs_error_t SrsServer::start(SrsWaitGroup* wg)
 {
     srs_error_t err = srs_success;
 
@@ -967,31 +912,25 @@ srs_error_t SrsServer::start()
         return srs_error_wrap(err, "tick");
     }
 
+    // OK, we start SRS server.
+    wg_ = wg;
+    wg->add(1);
+
     return err;
 }
 
-srs_error_t SrsServer::cycle()
+void SrsServer::stop()
 {
-    srs_error_t err = srs_success;
-
-    // Start the inotify auto reload by watching config file.
-    SrsInotifyWorker inotify(this);
-    if ((err = inotify.start()) != srs_success) {
-        return srs_error_wrap(err, "start inotify");
-    }
-
-    // Do server main cycle.
-     err = do_cycle();
-    
 #ifdef SRS_GPERF_MC
-    destroy();
-    
+    dispose();
+
     // remark, for gmc, never invoke the exit().
     srs_warn("sleep a long time for system st-threads to cleanup.");
     srs_usleep(3 * 1000 * 1000);
     srs_warn("system quit");
 
-    return err;
+    // For GCM, cleanup done.
+    return;
 #endif
 
     // quit normally.
@@ -1010,18 +949,40 @@ srs_error_t SrsServer::cycle()
     }
 
     srs_trace("srs terminated");
-    
+
     // for valgrind to detect.
     srs_freep(_srs_config);
     srs_freep(_srs_log);
+}
 
-    exit(0);
+srs_error_t SrsServer::cycle()
+{
+    srs_error_t err = srs_success;
+
+    // Start the inotify auto reload by watching config file.
+    SrsInotifyWorker inotify(this);
+    if ((err = inotify.start()) != srs_success) {
+        return srs_error_wrap(err, "start inotify");
+    }
+
+    // Do server main cycle.
+     err = do_cycle();
+
+    // OK, SRS server is done.
+    wg_->done();
 
     return err;
 }
 
 void SrsServer::on_signal(int signo)
 {
+    // For signal to quit with coredump.
+    if (signo == SRS_SIGNAL_ASSERT_ABORT) {
+        srs_trace("abort with coredump, signo=%d", signo);
+        srs_assert(false);
+        return;
+    }
+
     if (signo == SRS_SIGNAL_RELOAD) {
         srs_trace("reload config, signo=%d", signo);
         signal_reload = true;
@@ -1349,9 +1310,6 @@ srs_error_t SrsServer::listen_stream_caster()
         std::string caster = _srs_config->get_stream_caster_engine(stream_caster);
         if (srs_stream_caster_is_udp(caster)) {
             listener = new SrsUdpCasterListener(this, SrsListenerMpegTsOverUdp, stream_caster);
-        } else if (srs_stream_caster_is_rtsp(caster)) {
-            srs_warn("It's deprecated and will be removed in the future, see https://github.com/ossrs/srs/issues/2304#issuecomment-826009290");
-            listener = new SrsRtspListener(this, SrsListenerRtsp, stream_caster);
         } else if (srs_stream_caster_is_flv(caster)) {
             listener = new SrsHttpFlvListener(this, SrsListenerFlv, stream_caster);
         } else {

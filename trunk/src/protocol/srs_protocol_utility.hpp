@@ -9,7 +9,6 @@
 
 #include <srs_core.hpp>
 
-// for srs-librtmp, @see https://github.com/ossrs/srs/issues/213
 #ifndef _WIN32
 #include <sys/uio.h>
 #endif
@@ -54,6 +53,9 @@ extern void srs_random_generate(char* bytes, int size);
 
 // Generate random string [0-9a-z] in size of len bytes.
 extern std::string srs_random_str(int len);
+
+// Generate random value, use srandom(now_us) to init seed if not initialized.
+extern long srs_random();
 
 /**
  * generate the tcUrl without param.

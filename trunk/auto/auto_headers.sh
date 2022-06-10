@@ -11,6 +11,7 @@ echo "#ifndef SRS_AUTO_HEADER_HPP" >> $SRS_AUTO_HEADERS_H
 echo "#define SRS_AUTO_HEADER_HPP" >> $SRS_AUTO_HEADERS_H
 echo "" >> $SRS_AUTO_HEADERS_H
 
+echo "#define SRS_PACKAGER \"${SRS_AUTO_PACKAGER}\"" >> $SRS_AUTO_HEADERS_H
 echo "#define SRS_BUILD_TS \"`date +%s`\"" >> $SRS_AUTO_HEADERS_H
 echo "#define SRS_BUILD_DATE \"`date \"+%Y-%m-%d %H:%M:%S\"`\"" >> $SRS_AUTO_HEADERS_H
 echo "#define SRS_UNAME \"`uname -a`\"" >> $SRS_AUTO_HEADERS_H
@@ -176,14 +177,15 @@ fi
 # prefix
 echo "" >> $SRS_AUTO_HEADERS_H
 echo "#define SRS_PREFIX \"${SRS_PREFIX}\"" >> $SRS_AUTO_HEADERS_H
+echo "#define SRS_DEFAULT_CONFIG \"${SRS_DEFAULT_CONFIG}\"" >> $SRS_AUTO_HEADERS_H
 
 echo "" >> $SRS_AUTO_HEADERS_H
 
 #####################################################################################
 # generated the contributors from AUTHORS.txt
 #####################################################################################
-if [[ -f ../AUTHORS.txt ]]; then
-	SRS_CONSTRIBUTORS=`cat ../AUTHORS.txt|grep "*"|awk '{print $2}'`
+if [[ -f AUTHORS.txt ]]; then
+	SRS_CONSTRIBUTORS=`cat AUTHORS.txt|grep "*"|awk '{print $2}'`
 	echo "#define SRS_CONSTRIBUTORS \"\\" >> $SRS_AUTO_HEADERS_H
 	for CONTRIBUTOR in $SRS_CONSTRIBUTORS; do
 	    CONTRIBUTOR=`echo $CONTRIBUTOR|sed 's/@users.noreply.github.com>/@github>/g'`

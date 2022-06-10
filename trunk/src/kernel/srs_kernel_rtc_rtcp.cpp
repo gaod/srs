@@ -474,6 +474,7 @@ SrsRtcpRR::SrsRtcpRR(uint32_t sender_ssrc)
     header_.version = kRtcpVersion;
     header_.length = 7;
     ssrc_ = sender_ssrc;
+    // TODO: FIXME: Fix warning.
     memset(&rb_, 0, sizeof(SrsRtcpRB));
 }
 
@@ -1160,15 +1161,27 @@ srs_error_t SrsRtcpTWCC::do_encode(SrsBuffer *buffer)
     if(srs_success != (err = encode_header(buffer))) {
         return srs_error_wrap(err, "encode header");
     }
+
     buffer->write_4bytes(media_ssrc_);
     buffer->write_2bytes(base_sn_);
     buffer->write_2bytes(packet_count);
     buffer->write_3bytes(reference_time_);
     buffer->write_1bytes(fb_pkt_count_);
 
+    int required_size = encoded_chucks_.size() * 2;
+    if(!buffer->require(required_size)) {
+        return srs_error_new(ERROR_RTC_RTCP, "encoded_chucks_[%d] requires %d bytes", (int)encoded_chucks_.size(), required_size);
+    }
+
     for(vector<uint16_t>::iterator it = encoded_chucks_.begin(); it != encoded_chucks_.end(); ++it) {
         buffer->write_2bytes(*it);
     }
+
+    required_size = pkt_deltas_.size() * 2;
+    if(!buffer->require(required_size)) {
+        return srs_error_new(ERROR_RTC_RTCP, "pkt_deltas_[%d] requires %d bytes", (int)pkt_deltas_.size(), required_size);
+    }
+
     for(vector<uint16_t>::iterator it = pkt_deltas_.begin(); it != pkt_deltas_.end(); ++it) {
         if(0 <= *it && 0xFF >= *it) {
             // small delta
@@ -1179,6 +1192,7 @@ srs_error_t SrsRtcpTWCC::do_encode(SrsBuffer *buffer)
             buffer->write_2bytes(*it);
         }
     }
+
     while((pkt_len % 4) != 0) {
         buffer->write_1bytes(0);
         pkt_len++;
@@ -1332,9 +1346,14 @@ srs_error_t SrsRtcpNack::encode(SrsBuffer *buffer)
             if((sn - pid) < 1) {
                 srs_info("skip seq %d", sn);
             } else if( (sn - pid) > 16) {
-                // add new chunk
+                // append full chunk
                 chunks.push_back(chunk);
-                chunk.in_use = false;
+
+                // start new chunk
+                chunk.pid = sn;
+                chunk.blp = 0;
+                chunk.in_use = true;
+                pid = sn;
             } else {
                 chunk.blp |= 1 << (sn-pid-1);
             }

@@ -10,17 +10,75 @@
 #include <srs_kernel_error.hpp>
 #include <srs_kernel_log.hpp>
 
-static const char* id2codec_name(SrsAudioCodecId id)
+static const AVCodec* srs_find_decoder_by_id(SrsAudioCodecId id)
 {
-    switch (id) {
-    case SrsAudioCodecIdAAC:
-        return "aac";
-    case SrsAudioCodecIdOpus:
-        return "libopus";
-    default:
-        return "";
+    if (id == SrsAudioCodecIdAAC) {
+        return avcodec_find_decoder_by_name("aac");
+    } else if (id == SrsAudioCodecIdOpus) {
+        const AVCodec* codec = avcodec_find_decoder_by_name("libopus");
+        if (!codec) {
+            codec = avcodec_find_decoder_by_name("opus");
+        }
+        return codec;
     }
+    return NULL;
 }
+
+static const AVCodec* srs_find_encoder_by_id(SrsAudioCodecId id)
+{
+    if (id == SrsAudioCodecIdAAC) {
+        return avcodec_find_encoder_by_name("aac");
+    } else if (id == SrsAudioCodecIdOpus) {
+        const AVCodec* codec = avcodec_find_encoder_by_name("libopus");
+        if (!codec) {
+            codec = avcodec_find_encoder_by_name("opus");
+        }
+        return codec;
+    }
+    return NULL;
+}
+
+class SrsFFmpegLogHelper {
+public:
+    SrsFFmpegLogHelper() {
+        av_log_set_callback(ffmpeg_log_callback);
+        av_log_set_level(AV_LOG_TRACE);
+    }
+
+    static void ffmpeg_log_callback(void*, int level, const char* fmt, va_list vl) 
+    {
+        static char buf[4096] = {0};
+        int nbytes = vsnprintf(buf, sizeof(buf), fmt, vl);
+        if (nbytes > 0) {
+            // Srs log is always start with new line, replcae '\n' to '\0', make log easy to read.
+            if (buf[nbytes - 1] == '\n') {
+                buf[nbytes - 1] = '\0';
+            }
+            switch (level) {
+                case AV_LOG_PANIC:
+                case AV_LOG_FATAL:
+                case AV_LOG_ERROR:
+                    srs_error("%s", buf);
+                    break;
+                case AV_LOG_WARNING:
+                    srs_warn("%s", buf);
+                    break;
+                case AV_LOG_INFO:
+                    srs_trace("%s", buf);
+                    break;
+                case AV_LOG_VERBOSE:
+                case AV_LOG_DEBUG:
+                case AV_LOG_TRACE:
+                default:
+                    srs_verbose("%s", buf);
+                    break;
+            }
+        }
+    }
+};
+
+// Register FFmpeg log callback funciton.
+SrsFFmpegLogHelper _srs_ffmpeg_log_helper;
 
 SrsAudioTranscoder::SrsAudioTranscoder()
 {
@@ -133,10 +191,9 @@ void SrsAudioTranscoder::aac_codec_header(uint8_t **data, int *len)
 
 srs_error_t SrsAudioTranscoder::init_dec(SrsAudioCodecId src_codec)
 {
-    const char* codec_name = id2codec_name(src_codec);
-    const AVCodec *codec = avcodec_find_decoder_by_name(codec_name);
+    const AVCodec *codec = srs_find_decoder_by_id(src_codec);
     if (!codec) {
-        return srs_error_new(ERROR_RTC_RTP_MUXER, "Codec not found by name(%d,%s)", src_codec, codec_name);
+        return srs_error_new(ERROR_RTC_RTP_MUXER, "Codec not found by %d", src_codec);
     }
 
     dec_ = avcodec_alloc_context3(codec);
@@ -147,6 +204,8 @@ srs_error_t SrsAudioTranscoder::init_dec(SrsAudioCodecId src_codec)
     if (avcodec_open2(dec_, codec, NULL) < 0) {
         return srs_error_new(ERROR_RTC_RTP_MUXER, "Could not open codec");
     }
+    
+    dec_->channel_layout = av_get_default_channel_layout(dec_->channels);
 
     dec_frame_ = av_frame_alloc();
     if (!dec_frame_) {
@@ -164,15 +223,14 @@ srs_error_t SrsAudioTranscoder::init_dec(SrsAudioCodecId src_codec)
 
 srs_error_t SrsAudioTranscoder::init_enc(SrsAudioCodecId dst_codec, int dst_channels, int dst_samplerate, int dst_bit_rate)
 {
-    const char* codec_name = id2codec_name(dst_codec);
-    const AVCodec *codec = avcodec_find_encoder_by_name(codec_name);
+    const AVCodec *codec = srs_find_encoder_by_id(dst_codec);
     if (!codec) {
-        return srs_error_new(ERROR_RTC_RTP_MUXER, "Codec not found by name(%d,%s)", dst_codec, codec_name);
+        return srs_error_new(ERROR_RTC_RTP_MUXER, "Codec not found by %d", dst_codec);
     }
 
     enc_ = avcodec_alloc_context3(codec);
     if (!enc_) {
-        return srs_error_new(ERROR_RTC_RTP_MUXER, "Could not allocate audio codec context(%d,%s)", dst_codec, codec_name);
+        return srs_error_new(ERROR_RTC_RTP_MUXER, "Could not allocate audio codec context %d", dst_codec);
     }
 
     enc_->sample_rate = dst_samplerate;
@@ -184,6 +242,7 @@ srs_error_t SrsAudioTranscoder::init_enc(SrsAudioCodecId dst_codec, int dst_chan
     if (dst_codec == SrsAudioCodecIdOpus) {
         //TODO: for more level setting
         enc_->compression_level = 1;
+        enc_->strict_std_compliance = FF_COMPLIANCE_EXPERIMENTAL;
     } else if (dst_codec == SrsAudioCodecIdAAC) {
         enc_->strict_std_compliance = FF_COMPLIANCE_EXPERIMENTAL;
     }
@@ -263,8 +322,12 @@ srs_error_t SrsAudioTranscoder::decode_and_resample(SrsAudioFrame *pkt)
     dec_packet_->data = (uint8_t *)pkt->samples[0].bytes;
     dec_packet_->size = pkt->samples[0].size;
 
-    char err_buf[AV_ERROR_MAX_STRING_SIZE] = {0};
+    // Ignore empty packet, see https://github.com/ossrs/srs/pull/2757#discussion_r759797651
+    if (!dec_packet_->data || !dec_packet_->size){
+        return err;
+    }
 
+    char err_buf[AV_ERROR_MAX_STRING_SIZE] = {0};
     int error = avcodec_send_packet(dec_, dec_packet_);
     if (error < 0) {
         return srs_error_new(ERROR_RTC_RTP_MUXER, "submit to dec(%d,%s)", error,

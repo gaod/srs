@@ -15,6 +15,7 @@
 #include <srs_app_hourglass.hpp>
 #include <srs_app_hybrid.hpp>
 #include <srs_app_rtc_sdp.hpp>
+#include <srs_app_async_call.hpp>
 
 #include <string>
 
@@ -25,6 +26,7 @@ class SrsRequest;
 class SrsSdp;
 class SrsRtcSource;
 class SrsResourceManager;
+class SrsWaitGroup;
 
 // The UDP black hole, for developer to use wireshark to catch plaintext packets.
 // For example, server receive UDP packets at udp://8000, and forward the plaintext packet to black hole,
@@ -76,6 +78,7 @@ public:
     SrsSdp remote_sdp_;
     std::string eip_;
     std::string codec_;
+    std::string api_;
 
     // Generated data.
     SrsRequest* req_;
@@ -94,6 +97,7 @@ private:
     std::vector<SrsUdpMuxListener*> listeners;
     ISrsRtcServerHandler* handler;
     ISrsRtcServerHijacker* hijacker;
+    SrsAsyncCallWorker* async;
 public:
     SrsRtcServer();
     virtual ~SrsRtcServer();
@@ -106,6 +110,7 @@ public:
     // Set the handler for server events.
     void set_handler(ISrsRtcServerHandler* h);
     void set_hijacker(ISrsRtcServerHijacker* h);
+    srs_error_t exec_async_work(ISrsAsyncCallTask* t);
 public:
     // TODO: FIXME: Support gracefully quit.
     // TODO: FIXME: Support reload.
@@ -134,7 +139,7 @@ public:
     virtual ~RtcServerAdapter();
 public:
     virtual srs_error_t initialize();
-    virtual srs_error_t run();
+    virtual srs_error_t run(SrsWaitGroup* wg);
     virtual void stop();
 };
 

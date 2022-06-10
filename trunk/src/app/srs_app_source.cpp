@@ -255,8 +255,11 @@ srs_error_t SrsMessageQueue::enqueue(SrsSharedPtrMessage* msg, bool* is_overflow
     srs_error_t err = srs_success;
 
     msgs.push_back(msg);
-    
-    if (msg->is_av()) {
+
+    // If jitter is off, the timestamp of first sequence header is zero, which wll cause SRS to shrink and drop the
+    // keyframes even if there is not overflow packets in queue, so we must ignore the zero timestamps, please
+    // @see https://github.com/ossrs/srs/pull/2186#issuecomment-953383063
+    if (msg->is_av() && msg->timestamp != 0) {
         if (av_start_time == -1) {
             av_start_time = srs_utime_t(msg->timestamp * SRS_UTIME_MILLISECONDS);
         }
@@ -267,7 +270,7 @@ srs_error_t SrsMessageQueue::enqueue(SrsSharedPtrMessage* msg, bool* is_overflow
     if (max_queue_size <= 0) {
         return err;
     }
-    
+
     while (av_end_time - av_start_time > max_queue_size) {
         // notice the caller queue already overflow and shrinked.
         if (is_overflow) {
@@ -338,8 +341,7 @@ void SrsMessageQueue::shrink()
     SrsSharedPtrMessage* audio_sh = NULL;
     int msgs_size = (int)msgs.size();
     
-    // remove all msg
-    // igone the sequence header
+    // Remove all msgs, mark the sequence headers.
     for (int i = 0; i < (int)msgs.size(); i++) {
         SrsSharedPtrMessage* msg = msgs.at(i);
         
@@ -358,9 +360,10 @@ void SrsMessageQueue::shrink()
     }
     msgs.clear();
     
-    // update av_start_time
+    // Update av_start_time, the start time of queue.
     av_start_time = av_end_time;
-    //push_back secquence header and update timestamp
+
+    // Push back sequence headers and update their timestamps.
     if (video_sh) {
         video_sh->timestamp = srsu2ms(av_end_time);
         msgs.push_back(video_sh);
@@ -931,6 +934,12 @@ srs_error_t SrsOriginHub::on_audio(SrsSharedPtrMessage* shared_audio)
     if ((err = format->on_audio(msg)) != srs_success) {
         return srs_error_wrap(err, "format consume audio");
     }
+
+    // Ignore if no format->acodec, it means the codec is not parsed, or unsupport/unknown codec
+    // such as G.711 codec
+    if (!format->acodec) {
+        return err;
+    }
     
     // cache the sequence header if aac
     // donot cache the sequence header to gop_cache, return here.
@@ -1022,7 +1031,13 @@ srs_error_t SrsOriginHub::on_video(SrsSharedPtrMessage* shared_video, bool is_se
     if ((err = format->on_video(msg)) != srs_success) {
         return srs_error_wrap(err, "format consume video");
     }
-    
+   
+    // Ignore if no format->vcodec, it means the codec is not parsed, or unsupport/unknown codec
+    // such as H.263 codec
+    if (!format->vcodec) {
+        return err;
+    }
+ 
     // cache the sequence header if h264
     // donot cache the sequence header to gop_cache, return here.
     if (format->is_avc_sequence_header()) {
@@ -1123,7 +1138,8 @@ srs_error_t SrsOriginHub::on_publish()
         return srs_error_wrap(err, "dash publish");
     }
     
-    if ((err = dvr->on_publish()) != srs_success) {
+    // @see https://github.com/ossrs/srs/issues/1613#issuecomment-961657927
+    if ((err = dvr->on_publish(req)) != srs_success) {
         return srs_error_wrap(err, "dvr publish");
     }
     
@@ -1386,7 +1402,7 @@ srs_error_t SrsOriginHub::on_reload_vhost_dvr(string vhost)
     }
     
     // start to publish by new plan.
-    if ((err = dvr->on_publish()) != srs_success) {
+    if ((err = dvr->on_publish(req)) != srs_success) {
         return srs_error_wrap(err, "dvr publish failed");
     }
     
@@ -1503,6 +1519,8 @@ SrsMetaCache::SrsMetaCache()
 SrsMetaCache::~SrsMetaCache()
 {
     dispose();
+    srs_freep(vformat);
+    srs_freep(aformat);
 }
 
 void SrsMetaCache::dispose()
@@ -1697,6 +1715,10 @@ srs_error_t SrsLiveSourceManager::fetch_or_create(SrsRequest* r, ISrsLiveSourceH
     
     SrsLiveSource* source = NULL;
     if ((source = fetch(r)) != NULL) {
+        // we always update the request of resource,
+        // for origin auth is on, the token in request maybe invalid,
+        // and we only need to update the token of request, it's simple.
+        source->update_auth(r);
         *pps = source;
         return err;
     }
@@ -1734,11 +1756,6 @@ SrsLiveSource* SrsLiveSourceManager::fetch(SrsRequest* r)
     }
     
     source = pool[stream_url];
-    
-    // we always update the request of resource,
-    // for origin auth is on, the token in request maybe invalid,
-    // and we only need to update the token of request, it's simple.
-    source->update_auth(r);
     
     return source;
 }

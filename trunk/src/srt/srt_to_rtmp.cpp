@@ -14,9 +14,10 @@
 #include <srs_app_rtmp_conn.hpp>
 #include <srs_app_config.hpp>
 #include <srs_kernel_stream.hpp>
-#include <list>
 
 std::shared_ptr<srt2rtmp> srt2rtmp::s_srt2rtmp_ptr;
+std::mutex srt2rtmp::_srt_error_mutex;
+std::map<std::string, int> srt2rtmp::_srt_error_map;
 
 std::shared_ptr<srt2rtmp> srt2rtmp::get_instance() {
     if (!s_srt2rtmp_ptr) {
@@ -76,6 +77,17 @@ void srt2rtmp::insert_ctrl_message(unsigned int msg_type, const std::string& key
     //_notify_cond.notify_one();
     return;
 }
+
+void srt2rtmp::insert_log_message(LOGGER_LEVEL level, const std::string& log_content) {
+    std::unique_lock<std::mutex> locker(_mutex);
+
+    SRT_DATA_MSG_PTR msg_ptr = std::make_shared<SRT_DATA_MSG>(level, log_content);
+    msg_ptr->set_msg_type(SRT_MSG_LOG_TYPE);
+    _msg_queue.push(msg_ptr);
+
+    return;
+}
+
 SRT_DATA_MSG_PTR srt2rtmp::get_data_message() {
     std::unique_lock<std::mutex> locker(_mutex);
     SRT_DATA_MSG_PTR msg_ptr;
@@ -143,6 +155,7 @@ void srt2rtmp::handle_close_rtmpsession(const std::string& key_path) {
 srs_error_t srt2rtmp::cycle() {
     srs_error_t err = srs_success;
     _lastcheck_ts = 0;
+    int err_code = -1;
 
     while(true) {
         SRT_DATA_MSG_PTR msg_ptr = get_data_message();
@@ -153,12 +166,21 @@ srs_error_t srt2rtmp::cycle() {
             switch (msg_ptr->msg_type()) {
                 case SRT_MSG_DATA_TYPE:
                 {
-                    handle_ts_data(msg_ptr);
+                    err_code = handle_ts_data(msg_ptr);
+                    if (err_code  != ERROR_SUCCESS) {
+                        std::unique_lock<std::mutex> locker(_srt_error_mutex);
+                        _srt_error_map[msg_ptr->get_path()] = err_code;
+                    }
                     break;
                 }
                 case SRT_MSG_CLOSE_TYPE:
                 {
                     handle_close_rtmpsession(msg_ptr->get_path());
+                    break;
+                }
+                case SRT_MSG_LOG_TYPE:
+                {
+                    handle_log_data(msg_ptr);
                     break;
                 }
                 default:
@@ -177,7 +199,7 @@ srs_error_t srt2rtmp::cycle() {
     }
 }
 
-void srt2rtmp::handle_ts_data(SRT_DATA_MSG_PTR data_ptr) {
+int srt2rtmp::handle_ts_data(SRT_DATA_MSG_PTR data_ptr) {
     RTMP_CLIENT_PTR rtmp_ptr;
     auto iter = _rtmp_client_map.find(data_ptr->get_path());
     if (iter == _rtmp_client_map.end()) {
@@ -188,8 +210,36 @@ void srt2rtmp::handle_ts_data(SRT_DATA_MSG_PTR data_ptr) {
         rtmp_ptr = iter->second;
     }
 
-    rtmp_ptr->receive_ts_data(data_ptr);
+    return rtmp_ptr->receive_ts_data(data_ptr);
+}
 
+void srt2rtmp::handle_log_data(SRT_DATA_MSG_PTR data_ptr) {
+    switch (data_ptr->get_log_level()) {
+        case SRT_LOGGER_INFO_LEVEL:
+        {
+            srs_info(data_ptr->get_log_string());
+            break;
+        }
+        case SRT_LOGGER_TRACE_LEVEL:
+        {
+            srs_trace(data_ptr->get_log_string());
+            break;
+        }
+        case SRT_LOGGER_WARN_LEVEL:
+        {
+            srs_warn(data_ptr->get_log_string());
+            break;
+        }
+        case SRT_LOGGER_ERROR_LEVEL:
+        {
+            srs_error(data_ptr->get_log_string());
+            break;
+        }
+        default:
+        {
+            srs_trace(data_ptr->get_log_string());
+        }
+    }
     return;
 }
 
@@ -212,8 +262,7 @@ rtmp_client::rtmp_client(std::string key_path):_key_path(key_path)
         _appname = ret_vec[0];
         _streamname = ret_vec[1]; 
     }
-    char url_sz[128];
-    
+
     std::vector<std::string> ip_ports = _srs_config->get_listens();
     int port = 0;
     std::string ip;
@@ -224,23 +273,26 @@ rtmp_client::rtmp_client(std::string key_path):_key_path(key_path)
             break;
         }
     }
-    port = (port == 0) ? 1935 : port;
-    if (_vhost == DEF_VHOST) {
-        sprintf(url_sz, "rtmp://127.0.0.1:%d/%s/%s", port,
-            _appname.c_str(), _streamname.c_str());
-    } else {
-        sprintf(url_sz, "rtmp://127.0.0.1:%d/%s?vhost=%s/%s", port,
-            _appname.c_str(), _vhost.c_str(), _streamname.c_str());
+    port = (port == 0) ? SRS_CONSTS_RTMP_DEFAULT_PORT : port;
+
+    std::stringstream ss;
+    ss << "rtmp://" << SRS_CONSTS_LOCALHOST;
+    ss << ":" << port;
+    ss << "/" << _appname;
+    ss << "/" << _streamname;
+    ss << (_streamname.find("?") != std::string::npos ? "&" : "?") << "upstream=srt";
+    if (_vhost != DEF_VHOST) {
+        ss << "&vhost=" << _vhost;
     }
-    
-    _url = url_sz;
+
+    _url = ss.str();
 
     _h264_sps_changed = false;
     _h264_pps_changed = false;
     _h264_sps_pps_sent = false;
 
     _last_live_ts = now_ms();
-    srs_trace("rtmp client construct url:%s", url_sz);
+    srs_trace("rtmp client construct url:%s", _url.c_str());
 }
 
 rtmp_client::~rtmp_client() {
@@ -297,9 +349,8 @@ srs_error_t rtmp_client::connect() {
     return err;
 }
 
-void rtmp_client::receive_ts_data(SRT_DATA_MSG_PTR data_ptr) {
-    _ts_demux_ptr->decode(data_ptr, shared_from_this());//on_data_callback is the decode callback
-    return;
+int rtmp_client::receive_ts_data(SRT_DATA_MSG_PTR data_ptr) {
+    return _ts_demux_ptr->decode(data_ptr, shared_from_this());//on_data_callback is the decode callback
 }
 
 srs_error_t rtmp_client::write_h264_sps_pps(uint32_t dts, uint32_t pts) {
@@ -466,14 +517,14 @@ srs_error_t rtmp_client::on_ts_video(std::shared_ptr<SrsBuffer> avs_ptr, uint64_
             return srs_error_wrap(err, "demux annexb");
         }
         
-        //srs_trace_data(frame, frame_size, "video annexb demux:");
         // 5bits, 7.3.1 NAL unit syntax,
         // ISO_IEC_14496-10-AVC-2003.pdf, page 44.
         //  7: SPS, 8: PPS, 5: I Frame, 1: P Frame
         SrsAvcNaluType nal_unit_type = (SrsAvcNaluType)(frame[0] & 0x1f);
         
-        // ignore the nalu type sps(7), pps(8), aud(9)
-        if (nal_unit_type == SrsAvcNaluTypeAccessUnitDelimiter) {
+        // ignore the nalu type aud(9), pad(12)
+        if ((nal_unit_type == SrsAvcNaluTypeAccessUnitDelimiter)
+           || (nal_unit_type == SrsAvcNaluTypeFilterData)) {
             continue;
         }
 
@@ -523,12 +574,14 @@ srs_error_t rtmp_client::on_ts_video(std::shared_ptr<SrsBuffer> avs_ptr, uint64_
         }
         
         // ibp frame.
-        // TODO: FIXME: we should group all frames to a rtmp/flv message from one ts message.
-        srs_info("mpegts: demux avc ibp frame size=%d, dts=%d", frame_size, dts);
-        if ((err = write_h264_ipb_frame(frame, frame_size, dts, pts)) != srs_success) {
+        // for Issue: https://github.com/ossrs/srs/issues/2390
+        // we only skip pps/sps frame and send left nalus.
+        srs_info("mpegts: demux avc ibp frame size=%d, dts=%d", avs_ptr->left() + frame_size, dts);
+        if ((err = write_h264_ipb_frame(avs_ptr->head() - frame_size, avs_ptr->left() + frame_size, dts, pts)) != srs_success) {
             return srs_error_wrap(err, "write frame");
         }
         _last_live_ts = now_ms();
+        break;
     }
     
     return err;
@@ -620,13 +673,13 @@ srs_error_t rtmp_client::on_ts_audio(std::shared_ptr<SrsBuffer> avs_ptr, uint64_
     return err;
 }
 
-void rtmp_client::on_data_callback(SRT_DATA_MSG_PTR data_ptr, unsigned int media_type,
+int rtmp_client::on_data_callback(SRT_DATA_MSG_PTR data_ptr, unsigned int media_type,
                                 uint64_t dts, uint64_t pts)
 {
     srs_error_t err = srs_success;
     if (!data_ptr || (data_ptr->get_data() == nullptr) || (data_ptr->data_len() == 0)) {
         assert(0);
-        return;
+        return 0;
     }
 
     auto avs_ptr = std::make_shared<SrsBuffer>((char*)data_ptr->get_data(), data_ptr->data_len());
@@ -637,13 +690,16 @@ void rtmp_client::on_data_callback(SRT_DATA_MSG_PTR data_ptr, unsigned int media
         err = on_ts_audio(avs_ptr, dts, pts);
     } else {
         srs_error("mpegts demux unkown stream type:0x%02x, only support h264+aac", media_type);
-        return;
+        return 0;
     }
 
     if (err != srs_success) {
-        srs_error("send media data error:", srs_error_code(err));
+        srs_error("send media data error:%s", srs_error_desc(err).c_str());
+        int err_code = srs_error_code(err);
+        srs_freep(err);
+        return err_code;
     }
-    return;
+    return 0;
 }
 
 rtmp_packet_queue::rtmp_packet_queue():_queue_timeout(QUEUE_DEF_TIMEOUT)
