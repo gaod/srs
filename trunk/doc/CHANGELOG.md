@@ -8,10 +8,31 @@ The changelog for SRS.
 
 ## SRS 4.0 Changelog
 
+* v4.0, 2023-08-02, Fix [#3749](https://github.com/ossrs/srs/issues/3749): HLS: Ignore empty NALU to avoid error. v4.0.271
+* v4.0, 2023-07-21, Merge [#3695](https://github.com/ossrs/srs/pull/3695): API: Fix HTTPS callback issue using SNI in TLS client handshake. v4.0.270 (#3695)
+* v4.0, 2022-12-24, For [#296](https://github.com/ossrs/srs/issues/296): MP3: Fix bug for TS or HLS with mp3 codec. v4.0.269
+* v4.0, 2022-11-22, Pick [#3079](https://github.com/ossrs/srs/issues/3079): WebRTC: Fix no audio and video issue for Firefox. v4.0.268
+* v4.0, 2022-10-10, For [#2901](https://github.com/ossrs/srs/issues/2901): Edge: Fast disconnect and reconnect. v4.0.267
+* v4.0, 2022-09-27, For [#3167](https://github.com/ossrs/srs/issues/3167): WebRTC: Refine sequence jitter algorithm. v4.0.266
+* v4.0, 2022-09-16, For [#3179](https://github.com/ossrs/srs/issues/3179): WebRTC: Make sure the same m-lines order for offer and answer. v4.0.265
+* v4.0, 2022-09-09, For [#3174](https://github.com/ossrs/srs/issues/3174): WebRTC: Support Unity to publish or play stream. v4.0.264
+* v4.0, 2022-09-09, Fix [#3093](https://github.com/ossrs/srs/issues/3093): WebRTC: Ignore unknown fmtp for h.264. v4.0.263
+* v4.0, 2022-09-06, Fix [#3170](https://github.com/ossrs/srs/issues/3170): WebRTC: Support WHIP(WebRTC-HTTP ingestion protocol). v4.0.262
+* v4.0, 2022-09-03, Fix HTTP url parsing bug. v4.0.261
+* v4.0, 2022-09-03, For [#3167](https://github.com/ossrs/srs/issues/3167): WebRTC: Play stucked when republish. v4.0.260
+* v4.0, 2022-09-02, For [#307](https://github.com/ossrs/srs/issues/307): WebRTC: Support use domain name as CANDIDATE. v4.0.259
+* v4.0, 2022-08-29, Copy libxml2-dev for FFmpeg. v4.0.258
+* v4.0, 2022-08-24, STAT: Support config server_id and generate one if empty. v4.0.257
+* v4.0, 2022-08-24, For [#2136](https://github.com/ossrs/srs/issues/2136): API: Cleanup no active streams for statistics. v4.0.256
+* v4.0, 2022-08-17, RTMP URL supports domain in stream parameters. v4.0.255
+* v4.0, 2022-08-10, Fix server id generator bug. v4.0.254
+* v4.0, 2022-06-29, Update SRS image for r.ossrs.net. v4.0.253
+* v4.0, 2022-06-11, For [#3058](https://github.com/ossrs/srs/pull/3058): Docker: Support x86_64, armv7 and aarch64 docker image (#3058). v4.0.252
 * v4.0, 2022-03-19, For [#2893](https://github.com/ossrs/srs/pull/2893): SRT: Decouple publish with play url (#2893). v4.0.251
 * v4.0, 2022-03-19, Merge [#2908](https://github.com/ossrs/srs/pull/2908): SRT: url supports multiple QueryStrings (#2908). v4.0.250
 * v4.0, 2022-03-17, SRT: Support debug and run with CLion. v4.0.249
 * v4.0, 2022-03-15, Merge [#2966](https://github.com/ossrs/srs/pull/2966): Bugfix: Fix rtcp nack blp encode bug (#2966). v4.0.248
+* v4.0, 2022-03-11, Merge [#2914](https://github.com/ossrs/srs/pull/2914): Security: Enable CIDR for allow/deny play/publish.
 * v4.0, 2022-03-07, RTC: Identify the WebRTC publisher in param for hooks. v4.0.247
 * v4.0, 2022-03-07, SRT: Append vhost to stream, not app. v4.0.246
 * v4.0, 2022-02-15, Fix warnings for uuid. v4.0.245
