@@ -488,6 +488,9 @@ srs_error_t SrsFrame::initialize(SrsCodecConfig* c)
 srs_error_t SrsFrame::add_sample(char* bytes, int size)
 {
     srs_error_t err = srs_success;
+
+    // Ignore empty sample.
+    if (!bytes || size <= 0) return err;
     
     if (nb_samples >= SrsMaxNbSamples) {
         return srs_error_new(ERROR_HLS_DECODE_ERROR, "Frame samples overflow");
@@ -541,6 +544,8 @@ srs_error_t SrsVideoFrame::add_sample(char* bytes, int size)
     if ((err = SrsFrame::add_sample(bytes, size)) != srs_success) {
         return srs_error_wrap(err, "add frame");
     }
+
+    if (!bytes || size <= 0) return err;
     
     // for video, parse the nalu type, set the IDR flag.
     SrsAvcNaluType nal_unit_type = (SrsAvcNaluType)(bytes[0] & 0x1f);
@@ -1407,20 +1412,13 @@ srs_error_t SrsFormat::audio_mp3_demux(SrsBuffer* stream, int64_t timestamp)
     // we always decode aac then mp3.
     srs_assert(acodec->id == SrsAudioCodecIdMP3);
     
-    // Update the RAW MP3 data.
+    // Update the RAW MP3 data. Note the start is 12 bits syncword 0xFFF, so we should not skip any bytes, for detail
+    // please see ISO_IEC_11172-3-MP3-1993.pdf page 20 and 26.
     raw = stream->data() + stream->pos();
     nb_raw = stream->size() - stream->pos();
     
-    stream->skip(1);
-    if (stream->empty()) {
-        return err;
-    }
-    
-    char* data = stream->data() + stream->pos();
-    int size = stream->size() - stream->pos();
-    
     // mp3 payload.
-    if ((err = audio->add_sample(data, size)) != srs_success) {
+    if ((err = audio->add_sample(raw, nb_raw)) != srs_success) {
         return srs_error_wrap(err, "add audio frame");
     }
     

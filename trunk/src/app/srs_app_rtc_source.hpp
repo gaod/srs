@@ -261,6 +261,8 @@ private:
     uint16_t video_sequence;
     uint32_t audio_ssrc;
     uint32_t video_ssrc;
+    uint8_t audio_payload_type_;
+    uint8_t video_payload_type_;
 public:
     SrsRtcFromRtmpBridger(SrsRtcSource* source);
     virtual ~SrsRtcFromRtmpBridger();
@@ -357,13 +359,7 @@ public:
 class SrsVideoPayload : public SrsCodecPayload
 {
 public:
-    struct H264SpecificParameter
-    {
-        std::string profile_level_id;
-        std::string packetization_mode;
-        std::string level_asymmerty_allow;
-    };
-    H264SpecificParameter h264_param_;
+    H264SpecificParam h264_param_;
 
 public:
     SrsVideoPayload();
@@ -579,9 +575,90 @@ public:
     virtual srs_error_t check_send_nacks();
 };
 
+// RTC jitter for TS or sequence number, only reset the base, and keep in original order.
+template<typename T, typename ST>
+class SrsRtcJitter
+{
+private:
+    ST threshold_;
+    typedef ST (*PFN) (const T&, const T&);
+    PFN distance_;
+private:
+    // The value about packet.
+    T pkt_base_;
+    T pkt_last_;
+    // The value after corrected.
+    T correct_base_;
+    T correct_last_;
+    // The base timestamp by config, start from it.
+    T base_;
+    // Whether initialized. Note that we should not use correct_base_(0) as init state, because it might flip back.
+    bool init_;
+public:
+    SrsRtcJitter(T base, ST threshold, PFN distance) {
+        threshold_ = threshold;
+        distance_ = distance;
+        base_ = base;
+
+        pkt_base_ = pkt_last_ = 0;
+        correct_last_ = correct_base_ = 0;
+        init_ = false;
+    }
+    virtual ~SrsRtcJitter() {
+    }
+public:
+    T correct(T value) {
+        if (!init_) {
+            init_ = true;
+            correct_base_ = base_;
+            pkt_base_ = value;
+            srs_trace("RTC: Jitter init base=%u, value=%u", base_, value);
+        }
+
+        if (true) {
+            ST distance = distance_(value, pkt_last_);
+            if (distance > threshold_ || distance < -1 * threshold_) {
+                srs_trace("RTC: Jitter rebase value=%u, last=%u, distance=%d, pkt-base=%u/%u, correct-base=%u/%u",
+                    value, pkt_last_, distance, pkt_base_, value, correct_base_, correct_last_);
+                pkt_base_ = value;
+                correct_base_ = correct_last_;
+            }
+        }
+
+        pkt_last_ = value;
+        correct_last_ = correct_base_ + value - pkt_base_;
+
+        return correct_last_;
+    }
+};
+
+// For RTC timestamp jitter.
+class SrsRtcTsJitter
+{
+private:
+    SrsRtcJitter<uint32_t, int32_t>* jitter_;
+public:
+    SrsRtcTsJitter(uint32_t base);
+    virtual ~SrsRtcTsJitter();
+public:
+    uint32_t correct(uint32_t value);
+};
+
+// For RTC sequence jitter.
+class SrsRtcSeqJitter
+{
+private:
+    SrsRtcJitter<uint16_t, int16_t>* jitter_;
+public:
+    SrsRtcSeqJitter(uint16_t base);
+    virtual ~SrsRtcSeqJitter();
+public:
+    uint16_t correct(uint16_t value);
+};
+
 class SrsRtcSendTrack
 {
-protected:
+public:
     // send track description
     SrsRtcTrackDescription* track_desc_;
 protected:
@@ -589,6 +666,10 @@ protected:
     SrsRtcConnection* session_;
     // NACK ARQ ring buffer.
     SrsRtpRingBuffer* rtp_queue_;
+protected:
+    // The jitter to correct ts and sequence number.
+    SrsRtcTsJitter* jitter_ts_;
+    SrsRtcSeqJitter* jitter_seq_;
 private:
     // By config, whether no copy.
     bool nack_no_copy_;
@@ -605,6 +686,8 @@ public:
     bool set_track_status(bool active);
     bool get_track_status();
     std::string get_track_id();
+protected:
+    void rebuild_packet(SrsRtpPacket* pkt);
 public:
     // Note that we can set the pkt to NULL to avoid copy, for example, if the NACK cache the pkt and
     // set to NULL, nack nerver copy it but set the pkt to NULL.

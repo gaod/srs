@@ -75,16 +75,25 @@ class SrsRtcUserConfig
 {
 public:
     // Original variables from API.
+    std::string remote_sdp_str_;
     SrsSdp remote_sdp_;
     std::string eip_;
     std::string codec_;
     std::string api_;
+
+    // Session data.
+    std::string local_sdp_str_;
+    std::string session_id_;
 
     // Generated data.
     SrsRequest* req_;
     bool publish_;
     bool dtls_;
     bool srtp_;
+
+    // The order of audio and video, or whether audio is before video. Please make sure the order is match for offer and
+    // answer, or client might fail at setRemoveDescription(answer). See https://github.com/ossrs/srs/issues/3179
+    bool audio_before_video_;
 public:
     SrsRtcUserConfig();
     virtual ~SrsRtcUserConfig();

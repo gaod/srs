@@ -131,6 +131,12 @@ A big THANK YOU goes to:
 
 ## Releases
 
+* 2023-08-02, Release [v4.0-r5](https://github.com/ossrs/srs/releases/tag/v4.0-r5), v4.0-r5, 4.0 release5, v4.0.271, 145574 lines.
+* 2022-11-22, Release [v4.0-r4](https://github.com/ossrs/srs/releases/tag/v4.0-r4), v4.0-r4, 4.0 release4, v4.0.268, 145482 lines.
+* 2022-09-16, Release [v4.0-r3](https://github.com/ossrs/srs/releases/tag/v4.0-r3), v4.0-r3, 4.0 release3, v4.0.265, 145328 lines.
+* 2022-08-24, Release [v4.0-r2](https://github.com/ossrs/srs/releases/tag/v4.0-r2), v4.0-r2, 4.0 release2, v4.0.257, 144890 lines.
+* 2022-06-29, Release [v4.0-r1](https://github.com/ossrs/srs/releases/tag/v4.0-r1), v4.0-r1, 4.0 release1, v4.0.253, 144680 lines.
+* 2022-06-11, Release [v4.0-r0](https://github.com/ossrs/srs/releases/tag/v4.0-r0), v4.0-r0, 4.0 release0, v4.0.252, 144680 lines.
 * 2022-03-19, Release [v4.0-b10](https://github.com/ossrs/srs/releases/tag/v4.0-b10), v4.0-b10, 4.0 beta10, v4.0.251, 144665 lines.
 * 2022-02-15, Release [v4.0-b9](https://github.com/ossrs/srs/releases/tag/v4.0-b9), v4.0-b9, 4.0 beta9, v4.0.245, 144474 lines.
 * 2022-02-11, Release [v4.0-b8](https://github.com/ossrs/srs/releases/tag/v4.0-b8), v4.0-b8, 4.0 beta8, v4.0.241, 144445 lines.
@@ -433,5 +439,5 @@ Winlin
 [v4_EN_Contact]: https://github.com/ossrs/srs/wiki/v4_EN_Contact
 
 [LICENSE]: https://github.com/ossrs/srs/blob/4.0release/LICENSE
-[LicenseMixing]: https://github.com/ossrs/srs/wiki/LicenseMixing
+[LicenseMixing]: https://ossrs.net/lts/zh-cn/license
 
