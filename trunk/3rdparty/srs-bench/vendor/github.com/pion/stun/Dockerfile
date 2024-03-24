@@ -1,4 +1,4 @@
-FROM golang:1.17.10
+FROM golang:1.18.2
 
 COPY . /go/src/github.com/pion/stun
 
