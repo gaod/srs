@@ -7,6 +7,7 @@ The changelog for SRS.
 <a name="v5-changes"></a>
 
 ## SRS 5.0 Changelog
+* v5.0, 2025-01-14, Merge [#4271](https://github.com/ossrs/srs/pull/4271): update copyright to 2025. v5.0.218 (#4271)
 * v5.0, 2024-10-31, Merge [#4216](https://github.com/ossrs/srs/pull/4216): fix hls error when stream has extension. v5.0.217 (#4216)
 * v5.0, 2024-10-15, Merge [#4160](https://github.com/ossrs/srs/pull/4160): RTC2RTMP: Fix screen sharing stutter caused by packet loss. v5.0.216 (#4160)
 * v5.0, 2024-09-09, Merge [#4171](https://github.com/ossrs/srs/pull/4171): Heartbeat: Report ports for proxy server. v5.0.215 (#4171)

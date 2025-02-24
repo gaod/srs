@@ -1,6 +1,6 @@
 // The MIT License (MIT)
 //
-// # Copyright (c) 2022 Winlin
+// # Copyright (c) 2022-2025 Winlin
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy of
 // this software and associated documentation files (the "Software"), to deal in
@@ -21,10 +21,11 @@
 package gb28181
 
 import (
-	"github.com/ossrs/go-oryx-lib/logger"
 	"io/ioutil"
 	"os"
 	"testing"
+
+	"github.com/ossrs/go-oryx-lib/logger"
 )
 
 func TestMain(m *testing.M) {

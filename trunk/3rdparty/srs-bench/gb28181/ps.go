@@ -1,6 +1,6 @@
 // The MIT License (MIT)
 //
-// Copyright (c) 2022 Winlin
+// # Copyright (c) 2022-2025 Winlin
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy of
 // this software and associated documentation files (the "Software"), to deal in
@@ -23,14 +23,15 @@ package gb28181
 import (
 	"context"
 	"fmt"
-	"github.com/ossrs/go-oryx-lib/errors"
-	"github.com/pion/rtp"
-	"github.com/yapingcat/gomedia/codec"
-	"github.com/yapingcat/gomedia/mpeg2"
 	"math"
 	"net"
 	"net/url"
 	"strings"
+
+	"github.com/ossrs/go-oryx-lib/errors"
+	"github.com/pion/rtp"
+	"github.com/yapingcat/gomedia/codec"
+	"github.com/yapingcat/gomedia/mpeg2"
 )
 
 type PSConfig struct {
