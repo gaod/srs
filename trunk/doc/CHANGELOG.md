@@ -7,6 +7,7 @@ The changelog for SRS.
 <a name="v5-changes"></a>
 
 ## SRS 5.0 Changelog
+* v5.0, 2025-02-20, Merge [#4253](https://github.com/ossrs/srs/pull/4253): fix typo about heartbeat. v5.0.220 (#4253)
 * v5.0, 2025-02-19, Merge [#4291](https://github.com/ossrs/srs/pull/4291): fix ci error. v5.0.219 (#4291)
 * v5.0, 2025-01-14, Merge [#4271](https://github.com/ossrs/srs/pull/4271): update copyright to 2025. v5.0.218 (#4271)
 * v5.0, 2024-10-31, Merge [#4216](https://github.com/ossrs/srs/pull/4216): fix hls error when stream has extension. v5.0.217 (#4216)
